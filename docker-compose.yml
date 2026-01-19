@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: inventory-postgres
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  java-service:
+    build:
+      context: ./java-service
+      dockerfile: Dockerfile
+    container_name: inventory-java-service
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/inventory_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      SERVER_PORT: 8080
+      ORCHESTRATOR_CALLBACK_URL: http://node-service:3000/internal/order-completed
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  node-service:
+    build:
+      context: ./node-service
+      dockerfile: Dockerfile
+    container_name: inventory-node-service
+    environment:
+      PORT: 3000
+      JAVA_SERVICE_URL: http://java-service:8080
+      S3_BUCKET: ${S3_BUCKET:-inventory-invoices}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      BUSINESS_NAME: ${BUSINESS_NAME:-Inventory System}
+      FROM_EMAIL: ${FROM_EMAIL:-noreply@inventory.com}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - java-service
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
