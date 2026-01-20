@@ -262,6 +262,4 @@ npm test
 3. Configure RDS
 4. Set environment variables
 
-## License
 
-[Your License Here]
